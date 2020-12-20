@@ -55,7 +55,7 @@ requirements = [
     'catboost<0.24',
     'boto3',
     'lightgbm>=2.3.0,<3.0',
-    'pandas>1.0',
+    'pandas>=1.0.0,<2.0',
     'psutil>=5.0.0',
     'scikit-learn>=0.20.0,<0.23',
     'networkx>=2.3,<3.0',
