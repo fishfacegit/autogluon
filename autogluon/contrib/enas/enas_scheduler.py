@@ -6,6 +6,7 @@ from multiprocessing.pool import ThreadPool
 import math
 
 from mxboard import *
+from mxnet import initializer
 import numpy as np
 
 from ...searcher import RLSearcher
@@ -71,9 +72,13 @@ class ENAS_Scheduler(object):
         self.ema_decay = ema_baseline_decay
         self.searcher = RLSearcher(
             kwspaces, controller_type=controller_type, prefetch=4,
-            num_workers=4)
+            num_workers=4, softmax_temperature=5, tanh_constant=2.5)
         # controller setup
         self.controller = self.searcher.controller
+
+        # MIDL init controller params to range of ENAS paper
+        self.controller.initialize(init=initializer.Uniform(0.1))
+
         self.controller_optimizer = mx.gluon.Trainer(
                 self.controller.collect_params(), 'adam',
                 optimizer_params={'learning_rate': controller_lr})
@@ -254,7 +259,7 @@ class ENAS_Scheduler(object):
             self.summary_writer.add_scalar(tag='training_accuracy', value=train_acc, global_step=epoch)
             self.summary_writer.add_scalar(tag='validation_accuracy', value=self.val_acc, global_step=epoch)
             self.summary_writer.add_scalar(tag='evaluation_accuracy', value=self.eval_acc, global_step=epoch)
-            self.summary_writer.add_scalar(tag='avg_reward', value=self.baseline, global_step=epoch)
+            self.summary_writer.add_scalar(tag='avg_reward', value=self.baseline or 0, global_step=epoch)
             epoch_average_config = epoch_average_config / len(tbar)
             self._visualize_config_in_tensorboard(epoch_average_config, "train_epoch_average_config", epoch)
             self._visualize_config_in_tensorboard(config_array, "train_epoch_last_config", epoch)
@@ -345,7 +350,7 @@ class ENAS_Scheduler(object):
                 metric.reset()
                 self.eval_fn(self.supernet, batch, metric=metric, **self.val_args)
                 reward = metric.get()[1]
-                reward = self.reward_fn(reward, self.supernet)
+                reward = self.reward_fn(reward, self.supernet, self.controller_train_iteration)
                 self.baseline = reward if not self.baseline else self.baseline
                 # substract baseline
                 avg_rewards = mx.nd.array([reward - self.baseline],

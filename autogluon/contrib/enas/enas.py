@@ -262,6 +262,14 @@ class ENAS_Sequential(gluon.HybridBlock):
         return self._kwspaces
 
     @property
+    def nweight_params_enas(self):
+        nparams = 0
+        for k, op in self._modules.items():
+            if isinstance(op, ENAS_Unit):
+                nparams += op.nweight_params
+        return nparams
+
+    @property
     def nparams(self):
         nparams = 0
         for k, op in self._modules.items():
@@ -270,8 +278,31 @@ class ENAS_Sequential(gluon.HybridBlock):
             else:
                 # standard block
                 for _, v in op.collect_params().items():
-                    nparams += v.data().size
+                    # MIDL was causing error with default ctx
+                    nparams += v.data(ctx=mx.gpu()).size
         return nparams
+
+    def get_quantized_size(self, just_enas_weights=False):
+        size = 0
+        for k, op in self._modules.items():
+            if isinstance(op, ENAS_Unit):
+                size += op.get_quantized_size(just_enas_weights)
+            elif not just_enas_weights:
+                # standard block
+                for _, v in op.collect_params().items():
+                    # standard blocks are not quantized -> 32 bit
+                    size += v.data().size * 32
+        return size
+
+    def get_bit_operations(self, add_memory_access_cost=False):
+        bit_ops = 0
+        for k, op in self._modules.items():
+            if isinstance(op, ENAS_Unit):
+                bit_ops += op.module_list[op.index].bit_operations()
+                if add_memory_access_cost:
+                    bit_ops += op.nweight_params * op.module_list[op.index].bits
+
+        return bit_ops
 
     @property
     def latency(self):
@@ -350,8 +381,24 @@ class ENAS_Unit(gluon.HybridBlock):
     def nparams(self):
         nparams = 0
         for _, v in self.module_list[self.index].collect_params().items():
-            nparams += v.data().size
+            # MIDL was causing error with default ctx
+            nparams += v.data(ctx=mx.gpu()).size
         return nparams
+
+    @property
+    def nweight_params(self):
+        nparams = 0
+        for _, v in self.module_list[self.index].collect_params(".*weight.*").items():
+            # MIDL was causing error with default ctx
+            nparams += v.data(ctx=mx.gpu()).size
+        return nparams
+
+    def get_quantized_size(self, just_enas_weights=False):
+        quantized_size, quantized_weight_size = self.module_list[self.index].size_function()
+        if just_enas_weights:
+            return quantized_weight_size
+        else:
+            return quantized_size
 
     @property
     def latency(self):

@@ -122,10 +122,11 @@ class BaseController(mx.gluon.Block):
 
 # Reference: https://github.com/carpedm20/ENAS-pytorch/
 class LSTMController(BaseController):
-    def __init__(self, kwspaces, softmax_temperature=1.0, hidden_size=100,
-                 ctx=mx.cpu(), **kwargs):
+    def __init__(self, kwspaces, softmax_temperature=1.0, hidden_size=100, 
+                 ctx=mx.cpu(), tanh_constant = None, **kwargs):
         super().__init__(**kwargs)
         self.softmax_temperature = softmax_temperature
+        self.tanh_constant = tanh_constant
         self.spaces = list(kwspaces.items())
         self.hidden_size = hidden_size
         self.context = ctx
@@ -164,6 +165,10 @@ class LSTMController(BaseController):
 
         logits = self.decoders[block_idx](hx)
         logits = logits / self.softmax_temperature
+
+        # MIDL tanh constant form ENAS paper
+        if self.tanh_constant:
+            logits = self.tanh_constant * mx.nd.tanh(logits)
 
         return logits, (hx, cx)
 
